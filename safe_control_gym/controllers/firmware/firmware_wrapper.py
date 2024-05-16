@@ -1,22 +1,29 @@
+from __future__ import annotations
+
 import numpy as np
 import logging
 import math
 import os
+from typing import Callable
 
 import pybullet as p
 from munch import munchify
 from scipy.spatial.transform import Rotation as R
 
 from safe_control_gym.controllers.base_controller import BaseController
+from safe_control_gym.envs.gym_pybullet_drones.quadrotor import Quadrotor
 import pycffirmware as firm
 
 logger = logging.getLogger(__name__)
 
 
 class FirmwareWrapper(BaseController):
-    ACTION_DELAY = 0  # how many firmware loops run between the controller commanding an action and the drone motors responding to it
-    SENSOR_DELAY = 0  # how many firmware loops run between experiencing a motion and the sensors registering it
-    STATE_DELAY = 0  # not yet supported, keep 0
+    # Number of firmware loop iterations between the controller commanding an action and the drone
+    # motors responding to it
+    ACTION_DELAY = 0
+    # Number of firmware loop iterations between experiencing a motion and the sensors registering
+    # it
+    SENSOR_DELAY = 0
     CONTROLLER = "mellinger"  # specifies controller type
 
     # Configurations to match firmware. Not recommended to change
@@ -25,19 +32,23 @@ class FirmwareWrapper(BaseController):
     QUAD_FORMATION_X = True
     MOTOR_SET_ENABLE = True
 
+    # Motor and power supply settings
+    BRUSHED = True
+    SUPPLY_VOLTAGE = 3  # QUESTION: Is change of battery life worth simulating?
+
     RAD_TO_DEG = 180 / math.pi
 
     def __init__(
         self,
-        env_func,
-        firmware_freq,
-        ctrl_freq,
-        PWM2RPM_SCALE=0.2685,
-        PWM2RPM_CONST=4070.3,
-        KF=3.16e-10,
-        MIN_PWM=20000,
-        MAX_PWM=65535,
-        verbose=False,
+        env_func: Callable[[], Quadrotor],
+        firmware_freq: int,
+        ctrl_freq: int,
+        PWM2RPM_SCALE: float = 0.2685,
+        PWM2RPM_CONST: float = 4070.3,
+        KF: float = 3.16e-10,
+        MIN_PWM: int = 20000,
+        MAX_PWM: int = 65535,
+        verbose: bool = False,
         **kwargs,
     ):
         """Initializes a FirmwareWrapper object.
@@ -77,47 +88,6 @@ class FirmwareWrapper(BaseController):
 
         self.env = env_func()
 
-    def __repr__(self):
-        ret = ""
-        ret += "======= EMULATOR STATUS =======\n"
-        ret += "  \n"
-        ret += "  Tick: {self.tick}\n"
-        ret += "  \n"
-        ret += "  State\n"
-        ret += "  -------------------------------\n"
-        ret += f"  {'Pos':>6}: {round(self.state.position.x, 5):>8}x, {round(self.state.position.y, 5):>8}y, {round(self.state.position.z, 5):>8}z\n"
-        ret += f"  {'Vel':>6}: {round(self.state.velocity.x, 5):>8}x, {round(self.state.velocity.y, 5):>8}y, {round(self.state.velocity.z, 5):>8}z\n"
-        ret += f"  {'Acc':>6}: {round(self.state.acc.x, 5):>8}x, {round(self.state.acc.y, 5):>8}y, {round(self.state.acc.z, 5):>8}z\n"
-        ret += f"  {'RPY':>6}: {round(self.state.attitude.roll, 5):>8}, {round(self.state.attitude.pitch, 5):>8}, {round(self.state.attitude.yaw, 5):>8}\n"
-        ret += "  \n"
-
-        if self.verbose:
-            ret += "  Setpoint\n"
-            ret += "  -------------------------------\n"
-            ret += f"  {'Pos':>6}: {round(self.setpoint.position.x, 5):>8}x, {round(self.setpoint.position.y, 5):>8}y, {round(self.setpoint.position.z, 5):>8}z\n"
-            # ret += f"  {'Pos':>6}: {int((self.setpoint.position.x+1)*10) * ' ' + ' ':<25}x, {int((self.setpoint.position.y+1)*10) * ' ' + ' ':<25}y, {int((self.setpoint.position.z+1)*10) * ' ' + ' ':<25}z\n"
-            ret += f"  {'Vel':>6}: {round(self.setpoint.velocity.x, 5):>8}x, {round(self.setpoint.velocity.y, 5):>8}y, {round(self.setpoint.velocity.z, 5):>8}z\n"
-            ret += f"  {'Acc':>6}: {round(self.setpoint.acceleration.x, 5):>8}x, {round(self.setpoint.acceleration.y, 5):>8}y, {round(self.setpoint.acceleration.z, 5):>8}z\n"
-            ret += f"  {'Thrust':>6}: {round(self.setpoint.thrust, 5):>8}\n"
-            ret += "  \n"
-            ret += "  Control\n"
-            ret += "  -------------------------------\n"
-            ret += f"  {'Roll':>6}: {self.control.roll:>8}\n"
-            ret += f"  {'Pitch':>6}: {self.control.pitch:>8}\n"
-            ret += f"  {'Yaw':>6}: {self.control.yaw:>8}\n"
-            ret += f"  {'Thrust':>6}: {round(self.control.thrust, 5):>8}\n"
-            ret += "  \n"
-
-        ret += "  Action\n"
-        ret += "  -------------------------------\n"
-        ret += f"  {'M1':>6}: {round(self.action[0], 3):>8}\n"
-        ret += f"  {'M2':>6}: {round(self.action[1], 3):>8}\n"
-        ret += f"  {'M3':>6}: {round(self.action[2], 3):>8}\n"
-        ret += f"  {'M4':>6}: {round(self.action[3], 3):>8}\n"
-        ret += "  \n"
-        ret += "===============================\n"
-        return ret
-
     # region Controller functions
     def reset(self):
         """Resets the firmware_wrapper object.
@@ -131,9 +101,7 @@ class FirmwareWrapper(BaseController):
         # Initialize history
         self.action_history = [[0, 0, 0, 0] for _ in range(self.ACTION_DELAY)]
         self.sensor_history = [[[0, 0, 0], [0, 0, 0]] for _ in range(self.SENSOR_DELAY)]
-        self.state_history = [
-            [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]] for _ in range(self.STATE_DELAY)
-        ]
+        self.state_history = []
 
         # Initialize gyro lpf
         self.acclpf = [firm.lpf2pData() for _ in range(3)]
@@ -215,15 +183,15 @@ class FirmwareWrapper(BaseController):
     def close(self):
         self.env.close()
 
-    def step(self, sim_time, action):
+    def step(self, sim_time: float, action: np.ndarray):
         """Step the firmware_wrapper class and its environment.
 
         This function should be called once at the rate of ctrl_freq. Step processes and high level
         commands, and runs the firmware loop and simulator according to the frequencies set.
 
         Args:
-            sim_time (float): the time in seconds since beginning the episode
-            action (np.ndarray(4)): motor control forces to be applied. Order is: front left, back
+            sim_time (float): Time in seconds since beginning the episode
+            action (np.ndarray(4)): Motor control forces to be applied. Order is: front left, back
                 left, back right, front right.
 
         Todo:
@@ -275,16 +243,13 @@ class FirmwareWrapper(BaseController):
 
             # Update state
             state_timestamp = int(self.tick / self.firmware_freq * 1e3)
-            if self.STATE_DELAY:
-                raise NotImplementedError("State delay is not implemented. Leave at 0.")
-            else:
-                self._update_state(
-                    state_timestamp,
-                    cur_pos,
-                    cur_vel,
-                    cur_acc,
-                    cur_rpy * self.RAD_TO_DEG,
-                )
+            self._update_state(
+                state_timestamp,
+                cur_pos,
+                cur_vel,
+                cur_acc,
+                cur_rpy * self.RAD_TO_DEG,
+            )  # , quat=cur_quat)
 
             # Update sensor data
             sensor_timestamp = int(self.tick / self.firmware_freq * 1e6)
@@ -345,7 +310,6 @@ class FirmwareWrapper(BaseController):
         self.results_dict["done"] = np.vstack(self.results_dict["done"])
         self.results_dict["info"] = np.vstack(self.results_dict["info"])
         self.results_dict["action"] = np.vstack(self.results_dict["action"])
-
         self.results_dict = munchify(self.results_dict)
 
     # endregion
@@ -565,9 +529,8 @@ class FirmwareWrapper(BaseController):
         self.setpoint.mode.pitch = firm.modeDisable
         self.setpoint.mode.yaw = firm.modeDisable
 
-        self.setpoint.timestamp = int(
-            timestep * 1000
-        )  # TODO: This may end up skipping control loops
+        # TODO: This may end up skipping control loops
+        self.setpoint.timestamp = int(timestep * 1000)
         self.full_state_cmd_override = True
 
     def sendTakeoffCmd(self, height, duration):
@@ -694,21 +657,16 @@ class FirmwareWrapper(BaseController):
         firm.crtpCommanderHighLevelTellState(self.state)
         self.full_state_cmd_override = False
 
-    BRUSHED = True
-    SUPPLY_VOLTAGE = 3  # QUESTION: Is change of battery life worth simulating?
-
     def _motorsGetPWM(self, thrust):
         if self.BRUSHED:
             thrust = thrust / 65536 * 60
             volts = -0.0006239 * thrust**2 + 0.088 * thrust
             percentage = min(1, volts / self.SUPPLY_VOLTAGE)
             ratio = percentage * self.MAX_PWM
-
             return ratio
-        else:
-            raise NotImplementedError(
-                "Emulator does not support the brushless motor configuration at this time."
-            )
+        raise NotImplementedError(
+            "Emulator does not support the brushless motor configuration at this time."
+        )
 
     def _limitThrust(self, val):
         if val > self.MAX_PWM:
@@ -761,6 +719,49 @@ class FirmwareWrapper(BaseController):
             self.pwms = motor_pwms
         else:
             self.pwms = np.clip(motor_pwms, self.MIN_PWM).tolist()
+
+    # endregion
+
+    # region Printing
+    def __repr__(self):
+        ret = ""
+        ret += "======= EMULATOR STATUS =======\n"
+        ret += "  \n"
+        ret += f"  Tick: {self.tick}\n"
+        ret += "  \n"
+        ret += "  State\n"
+        ret += "  -------------------------------\n"
+        ret += f"  {'Pos':>6}: {round(self.state.position.x, 5):>8}x, {round(self.state.position.y, 5):>8}y, {round(self.state.position.z, 5):>8}z\n"
+        ret += f"  {'Vel':>6}: {round(self.state.velocity.x, 5):>8}x, {round(self.state.velocity.y, 5):>8}y, {round(self.state.velocity.z, 5):>8}z\n"
+        ret += f"  {'Acc':>6}: {round(self.state.acc.x, 5):>8}x, {round(self.state.acc.y, 5):>8}y, {round(self.state.acc.z, 5):>8}z\n"
+        ret += f"  {'RPY':>6}: {round(self.state.attitude.roll, 5):>8}, {round(self.state.attitude.pitch, 5):>8}, {round(self.state.attitude.yaw, 5):>8}\n"
+        ret += "  \n"
+
+        if self.verbose:
+            ret += "  Setpoint\n"
+            ret += "  -------------------------------\n"
+            ret += f"  {'Pos':>6}: {round(self.setpoint.position.x, 5):>8}x, {round(self.setpoint.position.y, 5):>8}y, {round(self.setpoint.position.z, 5):>8}z\n"
+            ret += f"  {'Vel':>6}: {round(self.setpoint.velocity.x, 5):>8}x, {round(self.setpoint.velocity.y, 5):>8}y, {round(self.setpoint.velocity.z, 5):>8}z\n"
+            ret += f"  {'Acc':>6}: {round(self.setpoint.acceleration.x, 5):>8}x, {round(self.setpoint.acceleration.y, 5):>8}y, {round(self.setpoint.acceleration.z, 5):>8}z\n"
+            ret += f"  {'Thrust':>6}: {round(self.setpoint.thrust, 5):>8}\n"
+            ret += "  \n"
+            ret += "  Control\n"
+            ret += "  -------------------------------\n"
+            ret += f"  {'Roll':>6}: {self.control.roll:>8}\n"
+            ret += f"  {'Pitch':>6}: {self.control.pitch:>8}\n"
+            ret += f"  {'Yaw':>6}: {self.control.yaw:>8}\n"
+            ret += f"  {'Thrust':>6}: {round(self.control.thrust, 5):>8}\n"
+            ret += "  \n"
+
+        ret += "  Action\n"
+        ret += "  -------------------------------\n"
+        ret += f"  {'M1':>6}: {round(self.action[0], 3):>8}\n"
+        ret += f"  {'M2':>6}: {round(self.action[1], 3):>8}\n"
+        ret += f"  {'M3':>6}: {round(self.action[2], 3):>8}\n"
+        ret += f"  {'M4':>6}: {round(self.action[3], 3):>8}\n"
+        ret += "  \n"
+        ret += "===============================\n"
+        return ret
 
     # endregion
 
