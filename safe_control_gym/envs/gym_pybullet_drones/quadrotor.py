@@ -4,6 +4,7 @@ Based on UTIAS Dynamic Systems Lab's gym-pybullet-drones:
     * https://github.com/utiasDSL/gym-pybullet-drones
 
 """
+
 import os
 import logging
 import math
@@ -62,6 +63,9 @@ class Quadrotor(BaseAviary):
             "high": 2.27e-5,
         },
     }
+    GATE_Z_LOW = 0.525
+    GATE_Z_HIGH = 1.0
+    OBSTACLE_Z = 1.05
 
     INIT_STATE_RAND_INFO = {
         "init_x": {"distrib": "uniform", "low": -0.5, "high": 0.5},
@@ -370,6 +374,7 @@ class Quadrotor(BaseAviary):
 
         # IROS 2022 - Create maze.
         self.OBSTACLES_IDS = []
+        self.obstacle_poses = []
         if self.RANDOMIZED_GATES_AND_OBS:
             rand_info_copy = deepcopy(self.GATES_AND_OBS_RAND_INFO)
             distrib = getattr(self.np_random, rand_info_copy["obstacles"].pop("distrib"))
@@ -385,6 +390,10 @@ class Quadrotor(BaseAviary):
             else:
                 offset = np.array([0, 0, obs_height])
                 pose_disturbance = np.array([0, 0, 0])
+            self.obstacle_poses.append(
+                list(np.array(obstacle[0:3]) + offset)
+                + list(np.array(obstacle[3:6]) + pose_disturbance)
+            )
             TMP_ID = p.loadURDF(
                 os.path.join(self.URDF_DIR, "obstacle.urdf"),
                 np.array(obstacle[0:3]) + offset,
@@ -402,9 +411,10 @@ class Quadrotor(BaseAviary):
                 physicsClientId=self.PYB_CLIENT,
             )
             self.OBSTACLES_IDS.append(TMP_ID)
-        #
+        self.obstacle_poses = np.array(self.obstacle_poses)
+        self.obstacle_poses[:, 2] = self.OBSTACLE_Z
         self.GATES_IDS = []
-        self.EFFECTIVE_GATES_POSITIONS = []
+        self._gates_pose = []
         if self.RANDOMIZED_GATES_AND_OBS:
             rand_info_copy = deepcopy(self.GATES_AND_OBS_RAND_INFO)
             distrib = getattr(self.np_random, rand_info_copy["gates"].pop("distrib"))
@@ -413,10 +423,10 @@ class Quadrotor(BaseAviary):
         for gate in self.GATES:
             if gate[6] == 0:
                 urdf_file = "portal.urdf"
-                gate_height = 1.0  # URDF dependent, places 'portal.urdf' at z == 0.
+                gate_height = self.GATE_Z_HIGH  # URDF dependent, places 'portal.urdf' at z == 0.
             elif gate[6] == 1:
                 urdf_file = "low_portal.urdf"
-                gate_height = 0.525  # URDF dependent, places 'low_portal.urdf' at z == 0.
+                gate_height = self.GATE_Z_LOW  # URDF dependent, places 'low_portal.urdf' at z == 0.
             else:
                 raise ValueError("[ERROR] Unknown gate type.")
             if self.RANDOMIZED_GATES_AND_OBS:
@@ -427,7 +437,7 @@ class Quadrotor(BaseAviary):
             else:
                 offset = np.array([0, 0, gate_height])
                 pose_disturbance = np.array([0, 0, 0])
-            self.EFFECTIVE_GATES_POSITIONS.append(
+            self._gates_pose.append(
                 list(np.array(gate[0:3]) + offset) + list(np.array(gate[3:6]) + pose_disturbance)
             )
             TMP_ID = p.loadURDF(
@@ -447,6 +457,7 @@ class Quadrotor(BaseAviary):
                 physicsClientId=self.PYB_CLIENT,
             )
             self.GATES_IDS.append(TMP_ID)
+        self._gates_pose = np.array(self._gates_pose)
         #
         self.current_gate = 0
         #
@@ -1162,11 +1173,11 @@ class Quadrotor(BaseAviary):
             and self.NUM_GATES > 0
             and self.current_gate < self.NUM_GATES
         ):
-            x, y, _, _, _, rot = self.EFFECTIVE_GATES_POSITIONS[self.current_gate]
+            x, y, _, _, _, rot = self._gates_pose[self.current_gate]
             if self.GATES[self.current_gate][6] == 0:
-                height = 1.0  # URDF dependent.
+                height = self.GATE_Z_HIGH  # URDF dependent.
             elif self.GATES[self.current_gate][6] == 1:
-                height = 0.525  # URDF dependent.
+                height = self.GATE_Z_LOW  # URDF dependent.
             else:
                 raise ValueError("Unknown gate type.")
             half_length = 0.1875  # Obstacle URDF dependent.
@@ -1192,8 +1203,10 @@ class Quadrotor(BaseAviary):
         # Always add the nominal gate positions. If any gates are in range, update the position. If
         # any obstacles are in range, also update the obstacle positions.
         VISIBILITY_RANGE = 0.45
-        info["gates_pos"] = self.GATES[:6].copy()
-        info["obstacles_pos"] = self.OBSTACLES.copy()
+        info["gates_pose"] = self.GATES[:, :6].copy()
+        info["gates_pose"][:, 2] = np.where(self.GATES[:, 6], self.GATE_Z_LOW, self.GATE_Z_HIGH)
+        info["obstacles_pose"] = self.OBSTACLES.copy()
+        info["obstacles_pose"][:, 2] = self.OBSTACLE_Z
         info["gates_in_range"] = np.zeros(self.NUM_GATES, dtype=bool)
         info["obstacles_in_range"] = np.zeros(self.n_obstacles, dtype=bool)
         for i in range(self.NUM_GATES):
@@ -1204,7 +1217,7 @@ class Quadrotor(BaseAviary):
                 physicsClientId=self.PYB_CLIENT,
             )
             if len(closest_points) > 0:
-                info["gates_pos"][i][:6] = self.EFFECTIVE_GATES_POSITIONS[i]
+                info["gates_pose"][i] = self._gates_pose[i]
                 info["gates_in_range"][i] = True
         for i in range(self.n_obstacles):
             closest_points = p.getClosestPoints(
@@ -1214,10 +1227,10 @@ class Quadrotor(BaseAviary):
                 physicsClientId=self.PYB_CLIENT,
             )
             if len(closest_points) > 0:
-                info["obstacles_pos"][i] = self.OBSTACLES[i]
+                info["obstacles_pose"][i] = self.obstacle_poses[i]
                 info["obstacles_in_range"][i] = True
 
-        info["gate_types"] = self.GATES[:, 6]
+        info["gates_type"] = self.GATES[:, 6]
         info["current_gate_id"] = self.current_gate if self.current_gate < self.NUM_GATES else -1
 
         # Final goal position reached
@@ -1278,10 +1291,14 @@ class Quadrotor(BaseAviary):
         info["quadrotor_kf"] = self.KF
         info["quadrotor_km"] = self.KM
         info["gate_dimensions"] = {
-            "tall": {"shape": "square", "height": 1.0, "edge": 0.45},
-            "low": {"shape": "square", "height": 0.525, "edge": 0.45},
+            "tall": {"shape": "square", "height": self.GATE_Z_HIGH, "edge": 0.45},
+            "low": {"shape": "square", "height": self.GATE_Z_LOW, "edge": 0.45},
         }
-        info["obstacle_dimensions"] = {"shape": "cylinder", "height": 1.05, "radius": 0.05}
+        info["obstacle_dimensions"] = {
+            "shape": "cylinder",
+            "height": self.OBSTACLE_Z,
+            "radius": 0.05,
+        }
         info["nominal_gates_pos_and_type"] = self.GATES
         info["nominal_obstacles_pos"] = self.OBSTACLES
 
