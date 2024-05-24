@@ -771,9 +771,7 @@ class Quadrotor(BaseAviary):
         if self.NORMALIZED_RL_ACTION_SPACE:
             # Normalized thrust (around hover thrust).
             self.hover_thrust = self.GRAVITY_ACC * self.MASS / action_dim
-            self.action_space = spaces.Box(
-                low=-np.ones(action_dim), high=np.ones(action_dim), dtype=np.float32
-            )
+            self.action_space = spaces.Box(low=-1, high=1, shape=(action_dim,), dtype=np.float32)
         else:
             # Direct thrust control.
             n_motors = 4 / action_dim
@@ -851,7 +849,8 @@ class Quadrotor(BaseAviary):
                     -np.finfo(np.float32).max,
                     -np.finfo(np.float32).max,
                     -np.finfo(np.float32).max,
-                ]
+                ],
+                np.float32,
             )
             high = np.array(
                 [
@@ -867,7 +866,8 @@ class Quadrotor(BaseAviary):
                     np.finfo(np.float32).max,
                     np.finfo(np.float32).max,
                     np.finfo(np.float32).max,
-                ]
+                ],
+                np.float32,
             )
             self.STATE_LABELS = [
                 "x",

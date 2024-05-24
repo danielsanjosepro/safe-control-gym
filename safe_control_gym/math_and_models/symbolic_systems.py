@@ -61,7 +61,8 @@ class SymbolicModel:
             "fd",
             self.integration_algo,
             {"x": self.x_sym, "p": self.u_sym, "ode": self.x_dot},
-            {"tf": self.dt},
+            0,
+            self.dt,
         )
         # Observation model.
         self.g_func = cs.Function("g", [self.x_sym, self.u_sym], [self.y_sym], ["x", "u"], ["g"])
@@ -103,7 +104,8 @@ class SymbolicModel:
                 "p": cs.vertcat(self.u_eval, self.x_sym, self.u_sym),
                 "ode": self.x_dot_linear,
             },
-            {"tf": self.dt},
+            0,
+            self.dt,
         )
         # Linearized observation model.
         self.y_linear = (
