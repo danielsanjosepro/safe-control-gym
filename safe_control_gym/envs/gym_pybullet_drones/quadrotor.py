@@ -202,6 +202,9 @@ class Quadrotor(BaseAviary):
             elif isinstance(init_state, dict):  # Partial state as dictionary.
                 for init_name in self.INIT_STATE_LABELS[self.QUAD_TYPE]:
                     self.__dict__[init_name.upper()] = init_state.get(init_name, 0.0)
+            elif isinstance(init_state, list):  
+                # Full state as list HACK: allow multiple init states for randomization.
+                self.__dict__["init_states"] = init_state
             else:
                 raise ValueError("[ERROR] in Quadrotor.__init__(), init_state incorrect format.")
 
@@ -459,7 +462,9 @@ class Quadrotor(BaseAviary):
             self.GATES_IDS.append(TMP_ID)
         self._gates_pose = np.array(self._gates_pose)
         #
-        self.current_gate = 0
+        init_states = self.__dict__['init_states']
+        random_init_state_id = np.random.choice(len(init_states))
+        self.current_gate = int(init_states[random_init_state_id][-1])
         #
         # Deactivate select collisions, e.g. between the ground plane and the drone
         # p.setCollisionFilterPair(bodyUniqueIdA=self.PLANE_ID,
@@ -501,20 +506,29 @@ class Quadrotor(BaseAviary):
             physicsClientId=self.PYB_CLIENT,
         )
 
-        # Randomize initial state.
-        init_values = {
-            init_name: self.__dict__[init_name.upper()]
-            for init_name in self.INIT_STATE_LABELS[self.QUAD_TYPE]
-        }
-        if self.RANDOMIZED_INIT:
-            init_values = self._randomize_values_by_info(init_values, self.INIT_STATE_RAND_INFO)
-        INIT_XYZ = [init_values.get("init_" + k, 0.0) for k in ["x", "y", "z"]]
-        INIT_VEL = [init_values.get("init_" + k + "_dot", 0.0) for k in ["x", "y", "z"]]
-        INIT_RPY = [init_values.get("init_" + k, 0.0) for k in ["phi", "theta", "psi"]]
+        init_states = self.__dict__['init_states']
+        chosen_init_state = init_states[random_init_state_id]  # Randomly chosen initial state 
+        INIT_XYZ = [chosen_init_state[0], chosen_init_state[2], chosen_init_state[4]]
+        INIT_VEL = [chosen_init_state[1], chosen_init_state[3], chosen_init_state[5]]
+        INIT_RPY = [chosen_init_state[6], chosen_init_state[7], chosen_init_state[8]]
         if self.QUAD_TYPE == QuadType.TWO_D:
-            INIT_ANG_VEL = [0, init_values.get("init_theta_dot", 0.0), 0]
+            INIT_ANG_VEL = [0, chosen_init_state[9], 0]
         else:
-            INIT_ANG_VEL = [init_values.get("init_" + k, 0.0) for k in ["p", "q", "r"]]
+            INIT_ANG_VEL = [chosen_init_state[9], chosen_init_state[10], chosen_init_state[11]]
+        # # Randomize initial state.
+        # init_values = {
+            # init_name: self.__dict__[init_name.upper()]
+            # for init_name in self.INIT_STATE_LABELS[self.QUAD_TYPE]
+        # }
+        # if self.RANDOMIZED_INIT:
+            # init_values = self._randomize_values_by_info(init_values, self.INIT_STATE_RAND_INFO)
+        # INIT_XYZ = [init_values.get("init_" + k, 0.0) for k in ["x", "y", "z"]]
+        # INIT_VEL = [init_values.get("init_" + k + "_dot", 0.0) for k in ["x", "y", "z"]]
+        # INIT_RPY = [init_values.get("init_" + k, 0.0) for k in ["phi", "theta", "psi"]]
+        # if self.QUAD_TYPE == QuadType.TWO_D:
+            # INIT_ANG_VEL = [0, init_values.get("init_theta_dot", 0.0), 0]
+        # else:
+            # INIT_ANG_VEL = [init_values.get("init_" + k, 0.0) for k in ["p", "q", "r"]]
         p.resetBasePositionAndOrientation(
             self.DRONE_IDS[0],
             INIT_XYZ,
