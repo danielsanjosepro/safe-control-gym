@@ -522,20 +522,10 @@ class Quadrotor(BaseAviary):
                     self.INIT_STATE_RAND_INFO["init_" + ["x", "y", "z"][i]]["low"],
                     self.INIT_STATE_RAND_INFO["init_" + ["x", "y", "z"][i]]["high"],
                 )
-            for i in range(len(INIT_VEL)):
-                INIT_VEL[i] += self.np_random.uniform(
-                    self.INIT_STATE_RAND_INFO["init_" + ["x", "y", "z"][i] + "_dot"]["low"],
-                    self.INIT_STATE_RAND_INFO["init_" + ["x", "y", "z"][i] + "_dot"]["high"],
-                )
             for i in range(len(INIT_RPY)):
                 INIT_RPY[i] += self.np_random.uniform(
                     self.INIT_STATE_RAND_INFO["init_" + ["phi", "theta", "psi"][i]]["low"],
                     self.INIT_STATE_RAND_INFO["init_" + ["phi", "theta", "psi"][i]]["high"],
-                )
-            for i in range(len(INIT_ANG_VEL)):
-                INIT_ANG_VEL[i] += self.np_random.uniform(
-                    self.INIT_STATE_RAND_INFO["init_" + ["p", "q", "r"][i]]["low"],
-                    self.INIT_STATE_RAND_INFO["init_" + ["p", "q", "r"][i]]["high"],
                 )
 
         # # Randomize initial state.
